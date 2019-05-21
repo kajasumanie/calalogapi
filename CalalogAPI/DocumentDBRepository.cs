@@ -1,123 +1,112 @@
-﻿
+using CatalogAPI.Entities;
+using CatalogAPI.Helpers;
+using Microsoft.Azure.Cosmos;
+using Microsoft.Extensions.Options;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.Azure.Documents;
 using Microsoft.Azure.Documents.Client;
 using Microsoft.Azure.Documents.Linq;
-using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
 
-namespace CalalogAPI
+namespace CatalogAPI.Services
 {
-    public static class DocumentDBRepository<T> where T : class
+    public class CatalogRepository : CosmosDbSdkRepository , ICatalogRepository
     {
-        private static readonly string Endpoint = "https://5f768b7c-0ee0-4-231-b9ee.documents.azure.com:443/";
-        private static readonly string Key = "ksDRnUemIzfyWpKWpXIkNKAfmS6ibIC7rR14tmo5gDNeNTjLyZ5WqdA8qAJ3LOCuRtorg4znJSogjVbFxydMzw==";
 
-        internal static Task GetItemsAsync(object collectionId)
+        public CatalogRepository(
+            IOptions<AzureCosmosDbOptions> azureCosmosDbOptions) : base(azureCosmosDbOptions)
         {
-            throw new NotImplementedException();
         }
 
-     private static readonly string DatabaseId = "Catalog";
-     private static readonly string BookCollectionId = "CalalogDB";
-        private static DocumentClient client;
-        public static void Initialize()
+        public async Task<Catalog> AddAsync(
+            Catalog order)
         {
-            client = new DocumentClient(new Uri(Endpoint), Key, new ConnectionPolicy
-            {
-                EnableEndpointDiscovery = false
-            });
-            CreateDatabaseIfNotExistsAsync().Wait();
-            CreateCollectionIfNotExistsAsync(BookCollectionId).Wait();
+            var orderContainer =
+               _cosmosDatabase.Containers["Items"];
+
+            var orderDocument =
+                await orderContainer.Items.CreateItemAsync<Catalog>(
+                    order.Id.ToString(),
+                    order);
+
+            return orderDocument.Resource;
         }
-        private static async Task CreateDatabaseIfNotExistsAsync()
+
+        public async Task<Catalog> DeleteByIdAsync(
+            Guid id)
         {
-            try
-            {
-                await client.ReadDatabaseAsync(UriFactory.CreateDatabaseUri(DatabaseId));
-            }
-            catch (DocumentClientException e)
-            {
-                if (e.StatusCode == System.Net.HttpStatusCode.NotFound)
-                {
-                    await client.CreateDatabaseAsync(new Database
-                    {
-                        Id = DatabaseId
-                    });
-                }
-                else
-                {
-                    throw;
-                }
-            }
+            var orderContainer =
+               _cosmosDatabase.Containers["Items"];
+
+            var orderDocument =
+                await orderContainer.Items.DeleteItemAsync<Catalog>(
+                    id.ToString(),
+                    id.ToString());
+
+            return orderDocument.Resource;
         }
-        private static async Task CreateCollectionIfNotExistsAsync(string collectionId)
+
+        public async Task<Catalog> FetchByIdAsync(
+            Guid id)
         {
-            try
-            {
-                await client.ReadDocumentCollectionAsync(UriFactory.CreateDocumentCollectionUri(DatabaseId, collectionId));
-            }
-            catch (DocumentClientException e)
-            {
-                if (e.StatusCode == System.Net.HttpStatusCode.NotFound)
-                {
-                    await client.CreateDocumentCollectionAsync(UriFactory.CreateDatabaseUri(DatabaseId), new DocumentCollection
-                    {
-                        Id = collectionId
-                    }, new RequestOptions
-                    {
-                        OfferThroughput = 1000
-                    });
-                }
-                else
-                {
-                    throw;
-                }
-            }
+            var orderContainer =
+               _cosmosDatabase.Containers["Items"];
+
+            var orderDocument =
+                await orderContainer.Items.ReadItemAsync<Catalog>(
+                    id.ToString(),
+                    id.ToString());
+
+            return orderDocument.Resource;
         }
-        public static async Task<T> GetSingleItemAsync(string id, string collectionId)
+
+        public async Task<IEnumerable<Catalog>> FetchListAsync(
+            Guid? itemId)
         {
-            try
+            var orderContainer =
+                _cosmosDatabase.Containers["Items"];
+
+            var query =
+                $"SELECT * FROM o";
+
+            if (itemId.HasValue)
             {
-                Document document = await client.ReadDocumentAsync(UriFactory.CreateDocumentUri(DatabaseId, collectionId, id));
-                return (T)(dynamic)document;
+                query += $" WHERE ARRAY_CONTAINS(o.items, {{ \"id\": \"{itemId}\" }}, true)";
             }
-            catch (DocumentClientException e)
+
+            var queryDefinition =
+                new CosmosSqlQueryDefinition(query);
+
+            var orders =
+                orderContainer.Items.CreateItemQuery<Catalog>(queryDefinition, maxConcurrency: 2);
+
+            var orderList = new List<Catalog>();
+
+            while (orders.HasMoreResults)
             {
-                if (e.StatusCode == System.Net.HttpStatusCode.NotFound)
-                {
-                    return null;
-                }
-                else
-                {
-                    throw;
-                }
-            }
+                orderList.AddRange(
+                    await orders.FetchNextSetAsync());
+            };
+
+            return orderList;
         }
-        public static async Task<IEnumerable<T>> GetItemsAsync(string collectionId)
+
+        public async Task<Catalog> UpdateByIdAsync(
+            Guid id,
+            Catalog order)
         {
-            IDocumentQuery<T> query = client.CreateDocumentQuery<T>(UriFactory.CreateDocumentCollectionUri(DatabaseId, collectionId), new FeedOptions
-            {
-                MaxItemCount = -1
-            }).AsDocumentQuery();
-            List<T> results = new List<T>();
-            while (query.HasMoreResults)
-            {
-                results.AddRange(await query.ExecuteNextAsync<T>());
-            }
-            return results;
-        }
-        public static async Task<Document> CreateItemAsync(T item, string collectionId)
-        {
-            return await client.CreateDocumentAsync(UriFactory.CreateDocumentCollectionUri(DatabaseId, collectionId), item);
-        }
-        public static async Task<Document> UpdateItemAsync(string id, T item, string collectionId)
-        {
-            return await client.ReplaceDocumentAsync(UriFactory.CreateDocumentUri(DatabaseId, collectionId, id), item);
-        }
-        public static async Task DeleteItemAsync(string id, string collectionId)
-        {
-            await client.DeleteDocumentAsync(UriFactory.CreateDocumentUri(DatabaseId, collectionId, id));
+            var orderContainer =
+               _cosmosDatabase.Containers["Items"];
+
+            var orderDocument =
+                await orderContainer.Items.ReplaceItemAsync<Catalog>(
+                    id.ToString(),
+                    id.ToString(),
+                    order);
+
+            return orderDocument.Resource;
         }
     }
 }
