@@ -1,27 +1,85 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using CalalogAPI.Models;
-using Microsoft.AspNetCore.Http;
+using CatalogAPI.Entities;
+using CatalogAPI.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 
-namespace CalalogAPI.Controllers
+namespace CatalogAPI.Controllers
 {
-    [Route("api/[controller]")]
+    [Route("api/CatalogAPI")]
+    [Produces("application/json")]
     [ApiController]
-    public class BooksController : ControllerBase
+    public class CatalogController : ControllerBase
     {
-        private static readonly string CollectionId = "CalalogDB";
-        // GET: api/Books
-        [HttpGet]
-        [Route("api/Books/Get")]
-        public async Task<IEnumerable<Book>> Get()
+        private readonly ICatalogRepository _catalogRepository;
+
+        public CatalogController(ICatalogRepository catalogRepository)
         {
-            var result = await DocumentDBRepository<Book>.GetItemsAsync(CollectionId);
-            return result;
-
-
+            _catalogRepository = catalogRepository;
         }
+
+        [HttpGet("FetchOrders")]
+        public async Task<IActionResult> FetchListAsync(
+            [FromQuery]Guid? Id)
+        {
+            var result =
+                await _catalogRepository.FetchListAsync(
+                    Id);
+
+            return Ok(result);
+        }
+
+        [HttpPost("AddOrder")]
+        public async Task<IActionResult> AddAsync(
+            [FromBody] Catalog catalog)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            var result =
+                await _catalogRepository.AddAsync(
+                    catalog);
+            return CreatedAtRoute("FetchOrder", new { id = result.Id }, result);
+        }
+
+        [HttpGet("{id}", Name = "FetchOrder")]
+       
+        public async Task<IActionResult> FetchByIdAsync(
+          [FromRoute] Guid id)
+        {
+            if (id == null
+                || id == Guid.Empty)
+            {
+                return BadRequest("Id required.");
+            }
+
+            var result =
+                await _catalogRepository.FetchByIdAsync(
+                    id);
+
+            return Ok(result);
+        }
+        [HttpDelete("{id}", Name = "DeleteOrder")]
+        
+        public async Task<IActionResult> DeleteByIdAsync(
+          [FromRoute] Guid id)
+        {
+            if (id == null
+                || id == Guid.Empty)
+            {
+                return BadRequest("Id required.");
+            }
+
+            await _catalogRepository.DeleteByIdAsync(
+                id);
+
+            return NoContent();
+        }
+
     }
-}
+}   
